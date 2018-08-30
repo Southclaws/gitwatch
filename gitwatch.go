@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -152,7 +153,7 @@ func (s *Session) checkRepo(repoPath string) (event *Event, err error) {
 // cloneRepo clones the specified repository to the session's cache and, if
 // InitialEvent is true, emits an event for the newly cloned repo.
 func (s *Session) cloneRepo(repoPath, localPath string) (event *Event, err error) {
-	repo, err := git.PlainClone(localPath, false, &git.CloneOptions{
+	repo, err := git.PlainCloneContext(s.ctx, localPath, false, &git.CloneOptions{
 		Auth: s.Auth,
 		URL:  repoPath,
 	})
@@ -215,8 +216,13 @@ func GetEventFromRepo(repo *git.Repository) (event *Event, err error) {
 // GetRepoPath returns the local path of a cached repo from the given cache, the
 // base component of the repo path is used as a directory name for the target
 // repository.
-func GetRepoPath(cache, repo string) (path string, err error) {
-	u, err := url.Parse(repo)
+func GetRepoPath(cache, repo string) (result string, err error) {
+	path := strings.Split(repo, ":")
+	i := 0
+	if len(path) == 2 {
+		i = 1
+	}
+	u, err := url.Parse(path[i])
 	if err != nil {
 		return
 	}

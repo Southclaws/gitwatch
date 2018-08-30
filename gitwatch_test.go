@@ -10,11 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"gopkg.in/src-d/go-git.v4"
-	"gopkg.in/src-d/go-git.v4/plumbing/object"
-
 	"github.com/Southclaws/gitwatch"
 	"github.com/bmizerany/assert"
+	"gopkg.in/src-d/go-git.v4"
+	"gopkg.in/src-d/go-git.v4/plumbing/object"
 )
 
 var (
@@ -179,4 +178,32 @@ func fullPath(relative string) (result string) {
 		panic(err)
 	}
 	return
+}
+
+func TestGetRepoPath(t *testing.T) {
+	type args struct {
+		cache string
+		repo  string
+	}
+	tests := []struct {
+		name     string
+		args     args
+		wantPath string
+		wantErr  bool
+	}{
+		{"https", args{"cache", "https://a.com/user/repo"}, "cache/repo", false},
+		{"ssh", args{"cache", "git@a.com:user/repo"}, "cache/repo", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotPath, err := gitwatch.GetRepoPath(tt.args.cache, tt.args.repo)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetRepoPath() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if gotPath != tt.wantPath {
+				t.Errorf("GetRepoPath() = %v, want %v", gotPath, tt.wantPath)
+			}
+		})
+	}
 }
