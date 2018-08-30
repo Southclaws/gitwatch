@@ -147,7 +147,7 @@ func (s *Session) checkRepo(repoPath string) (event *Event, err error) {
 		return s.cloneRepo(repoPath, localPath)
 	}
 
-	return GetEventFromRepoChanges(repo)
+	return s.GetEventFromRepoChanges(repo)
 }
 
 // cloneRepo clones the specified repository to the session's cache and, if
@@ -170,13 +170,15 @@ func (s *Session) cloneRepo(repoPath, localPath string) (event *Event, err error
 
 // GetEventFromRepoChanges reads a locally cloned git repository an returns an
 // event only if an attempted fetch resulted in new changes in the working tree.
-func GetEventFromRepoChanges(repo *git.Repository) (event *Event, err error) {
+func (s *Session) GetEventFromRepoChanges(repo *git.Repository) (event *Event, err error) {
 	wt, err := repo.Worktree()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get worktree")
 	}
 
-	err = wt.Pull(&git.PullOptions{})
+	err = wt.Pull(&git.PullOptions{
+		Auth: s.Auth,
+	})
 	if err != nil {
 		if err == git.NoErrAlreadyUpToDate {
 			return nil, nil

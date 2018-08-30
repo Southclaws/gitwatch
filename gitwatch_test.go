@@ -14,6 +14,7 @@ import (
 	"github.com/bmizerany/assert"
 	"gopkg.in/src-d/go-git.v4"
 	"gopkg.in/src-d/go-git.v4/plumbing/object"
+	"gopkg.in/src-d/go-git.v4/plumbing/transport/ssh"
 )
 
 var (
@@ -29,13 +30,18 @@ func TestMain(m *testing.M) {
 	mockRepo("a")
 	mockRepo("b")
 
+	auth, err := ssh.NewSSHAgentAuth("git")
+	if err != nil {
+		panic(err)
+	}
+
 	ctx, cf = context.WithCancel(context.Background())
 	gw, err = gitwatch.New(
 		ctx,
-		[]string{"./test/local/a", "./test/local/b"},
+		[]string{"./test/local/a", "./test/local/b", "git@github.com:Southclaws/gitwatch.git"},
 		time.Second,
 		"./test/",
-		nil,
+		auth,
 		true,
 	)
 	if err != nil {
