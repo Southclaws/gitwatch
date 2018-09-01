@@ -29,6 +29,10 @@ func TestMain(m *testing.M) {
 
 	mockRepo("a")
 	mockRepo("b")
+	err = os.RemoveAll("./test/gitwatch.git")
+	if err != nil {
+		panic(err)
+	}
 
 	auth, err := ssh.NewSSHAgentAuth("git")
 	if err != nil {
@@ -64,6 +68,7 @@ func TestMain(m *testing.M) {
 	}()
 
 	// consume clone events
+	fmt.Println("consumed initial event:", <-gw.Events)
 	fmt.Println("consumed initial event:", <-gw.Events)
 	fmt.Println("consumed initial event:", <-gw.Events)
 
