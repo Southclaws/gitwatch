@@ -51,7 +51,7 @@ func New(
 		Repositories: repos,
 		Interval:     interval,
 		Directory:    dir,
-		Events:       make(chan Event),
+		Events:       make(chan Event, len(repos)),
 		Errors:       make(chan error, 16),
 		InitialEvent: initialEvent,
 		InitialDone:  make(chan struct{}, 1),
