@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"io"
 
+	"golang.org/x/xerrors"
 	"github.com/pkg/errors"
 	"gopkg.in/src-d/go-git.v4"
 	"gopkg.in/src-d/go-git.v4/plumbing/transport"
@@ -84,6 +86,9 @@ func (s *Session) daemon() (err error) {
 		case <-t.C:
 			err = s.checkRepos()
 			if err != nil {
+				if xerrors.Is(err, io.EOF) {
+					return nil
+				}
 				s.Errors <- err
 				return nil
 			}
