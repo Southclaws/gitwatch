@@ -162,7 +162,7 @@ func (s *Session) checkRepo(repository Repository) (event *Event, err error) {
 		return s.cloneRepo(repository, localPath)
 	}
 
-	return s.GetEventFromRepoChanges(repo, repository)
+	return s.GetEventFromRepoChanges(repo, repository.Branch)
 }
 
 // cloneRepo clones the specified repository to the session's cache and, if
@@ -188,7 +188,7 @@ func (s *Session) cloneRepo(repository Repository, localPath string) (event *Eve
 
 // GetEventFromRepoChanges reads a locally cloned git repository an returns an
 // event only if an attempted fetch resulted in new changes in the working tree.
-func (s *Session) GetEventFromRepoChanges(repo *git.Repository, repository Repository) (event *Event, err error) {
+func (s *Session) GetEventFromRepoChanges(repo *git.Repository, branch string) (event *Event, err error) {
 	wt, err := repo.Worktree()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get worktree")
@@ -197,7 +197,7 @@ func (s *Session) GetEventFromRepoChanges(repo *git.Repository, repository Repos
 	err = wt.Pull(&git.PullOptions{
 		Auth: s.Auth,
 		ReferenceName: plumbing.ReferenceName(
-			fmt.Sprintf("refs/heads/%s", repository.Branch),
+			fmt.Sprintf("refs/heads/%s", branch),
 		),
 	})
 	if err != nil {
