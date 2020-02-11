@@ -19,7 +19,7 @@ import (
 	"gopkg.in/src-d/go-git.v4/plumbing/transport"
 )
 
-// Repository provides a url and branch configuration
+// Repository represents a Git repository address and branch name
 type Repository struct {
 	URL    string // local or remote repository URL to watch
 	Branch string // the name of the branch to use `master` being default
