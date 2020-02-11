@@ -5,21 +5,29 @@ package gitwatch
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
-	"io"
 
-	"golang.org/x/xerrors"
 	"github.com/pkg/errors"
+	"golang.org/x/xerrors"
 	"gopkg.in/src-d/go-git.v4"
+	"gopkg.in/src-d/go-git.v4/plumbing"
 	"gopkg.in/src-d/go-git.v4/plumbing/transport"
 )
 
+// Repository provides a url and branch configuration
+type Repository struct {
+	URL    string // local or remote repository URL to watch
+	Branch string // the name of the branch to use `master` being default
+}
+
 // Session represents a git watch session configuration
 type Session struct {
-	Repositories []string             // list of local or remote repository URLs to watch
+	Repositories []Repository         // list of local or remote repository URLs to watch
 	Interval     time.Duration        // the interval between remote checks
 	Directory    string               // the directory to store repositories
 	Auth         transport.AuthMethod // authentication method for git operations
@@ -49,8 +57,10 @@ func New(
 	initialEvent bool,
 ) (session *Session, err error) {
 	ctx2, cf := context.WithCancel(ctx)
+	repoList := MakeRepositoryList(repos)
+
 	session = &Session{
-		Repositories: repos,
+		Repositories: repoList,
 		Interval:     interval,
 		Directory:    dir,
 		Events:       make(chan Event, len(repos)),
@@ -118,9 +128,9 @@ func (s *Session) daemon() (err error) {
 // checkRepos simply iterates all repositories and collects events from them, if
 // there are any, they will be emitted to the Events channel concurrently.
 func (s *Session) checkRepos() (err error) {
-	for _, repoPath := range s.Repositories {
+	for _, repository := range s.Repositories {
 		var event *Event
-		event, err = s.checkRepo(repoPath)
+		event, err = s.checkRepo(repository)
 		if err != nil {
 			return
 		}
@@ -135,8 +145,8 @@ func (s *Session) checkRepos() (err error) {
 // checkRepo checks a specific git repository that may or may not exist locally
 // and if there are changes or the repository had to be cloned fresh (and
 // InitialEvents is true) then an event is returned.
-func (s *Session) checkRepo(repoPath string) (event *Event, err error) {
-	localPath, err := GetRepoPath(s.Directory, repoPath)
+func (s *Session) checkRepo(repository Repository) (event *Event, err error) {
+	localPath, err := GetRepoPath(s.Directory, repository.URL)
 	if err != nil {
 		err = errors.Wrap(err, "failed to get path from repo url")
 		return
@@ -149,18 +159,21 @@ func (s *Session) checkRepo(repoPath string) (event *Event, err error) {
 			return
 		}
 
-		return s.cloneRepo(repoPath, localPath)
+		return s.cloneRepo(repository, localPath)
 	}
 
-	return s.GetEventFromRepoChanges(repo)
+	return s.GetEventFromRepoChanges(repo, repository)
 }
 
 // cloneRepo clones the specified repository to the session's cache and, if
 // InitialEvent is true, emits an event for the newly cloned repo.
-func (s *Session) cloneRepo(repoPath, localPath string) (event *Event, err error) {
+func (s *Session) cloneRepo(repository Repository, localPath string) (event *Event, err error) {
 	repo, err := git.PlainCloneContext(s.ctx, localPath, false, &git.CloneOptions{
 		Auth: s.Auth,
-		URL:  repoPath,
+		URL:  repository.URL,
+		ReferenceName: plumbing.ReferenceName(
+			fmt.Sprintf("refs/heads/%s", repository.Branch),
+		),
 	})
 	if err != nil {
 		err = errors.Wrap(err, "failed to clone initial copy of repository")
@@ -175,7 +188,7 @@ func (s *Session) cloneRepo(repoPath, localPath string) (event *Event, err error
 
 // GetEventFromRepoChanges reads a locally cloned git repository an returns an
 // event only if an attempted fetch resulted in new changes in the working tree.
-func (s *Session) GetEventFromRepoChanges(repo *git.Repository) (event *Event, err error) {
+func (s *Session) GetEventFromRepoChanges(repo *git.Repository, repository Repository) (event *Event, err error) {
 	wt, err := repo.Worktree()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get worktree")
@@ -183,6 +196,9 @@ func (s *Session) GetEventFromRepoChanges(repo *git.Repository) (event *Event, e
 
 	err = wt.Pull(&git.PullOptions{
 		Auth: s.Auth,
+		ReferenceName: plumbing.ReferenceName(
+			fmt.Sprintf("refs/heads/%s", repository.Branch),
+		),
 	})
 	if err != nil {
 		if err == git.NoErrAlreadyUpToDate {
@@ -234,4 +250,31 @@ func GetRepoPath(cache, repo string) (result string, err error) {
 		return
 	}
 	return filepath.Join(cache, filepath.Base(u.Path)), nil
+}
+
+// MakeRepositoryList Creates a repository list from an array of
+// strings, while also checking is the string contains a special
+// character which can be used to get the branch to use
+func MakeRepositoryList(repos []string) (result []Repository) {
+	var repoList []Repository
+	for _, repo := range repos {
+		url := repo
+		branch := "master"
+
+		if strings.Contains(repo, "#") {
+			path := strings.Split(repo, "#")
+
+			url = path[0]
+			if len(path[1]) > 0 {
+				branch = path[1]
+			}
+		}
+
+		list := Repository{
+			URL:    url,
+			Branch: branch,
+		}
+		repoList = append(repoList, list)
+	}
+	return repoList
 }
