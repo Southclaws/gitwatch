@@ -43,7 +43,7 @@ func TestMain(m *testing.M) {
 	ctx, cf = context.WithCancel(context.Background())
 	gw, err = gitwatch.New(
 		ctx,
-		[]string{"./test/local/a", "./test/local/b", "git@github.com:Southclaws/gitwatch.git"},
+		[]string{"./test/local/a", "./test/local/b", "https://github.com/Southclaws/gitwatch.git"},
 		time.Second,
 		"./test/",
 		auth,
