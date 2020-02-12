@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -214,6 +215,56 @@ func TestGetRepoPath(t *testing.T) {
 			}
 			if gotPath != tt.wantPath {
 				t.Errorf("GetRepoPath() = %v, want %v", gotPath, tt.wantPath)
+			}
+		})
+	}
+}
+
+func TestMakeRepositoryList(t *testing.T) {
+	type args struct {
+		repos []string
+	}
+	tests := []struct {
+		name       string
+		args       args
+		wantResult []gitwatch.Repository
+	}{
+		{"without_branch", args{
+			[]string{
+				"https://a.com/user/repo",
+				"git@a.com:user/repo",
+			},
+		}, []gitwatch.Repository{
+			{
+				URL:    "https://a.com/user/repo",
+				Branch: "master",
+			},
+			{
+				URL:    "git@a.com:user/repo",
+				Branch: "master",
+			},
+		}},
+
+		{"with_branch", args{
+			[]string{
+				"https://a.com/user/repo#development",
+				"git@a.com:user/repo#testing",
+			},
+		}, []gitwatch.Repository{
+			{
+				URL:    "https://a.com/user/repo",
+				Branch: "development",
+			},
+			{
+				URL:    "git@a.com:user/repo",
+				Branch: "testing",
+			},
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if gotResult := gitwatch.MakeRepositoryList(tt.args.repos); !reflect.DeepEqual(gotResult, tt.wantResult) {
+				t.Errorf("MakeRepositoryList() = %v, want %v", gotResult, tt.wantResult)
 			}
 		})
 	}
