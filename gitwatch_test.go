@@ -15,7 +15,6 @@ import (
 	"github.com/bmizerany/assert"
 	"gopkg.in/src-d/go-git.v4"
 	"gopkg.in/src-d/go-git.v4/plumbing/object"
-	"gopkg.in/src-d/go-git.v4/plumbing/transport/ssh"
 )
 
 var (
@@ -35,18 +34,13 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
-	auth, err := ssh.NewSSHAgentAuth("git")
-	if err != nil {
-		panic(err)
-	}
-
 	ctx, cf = context.WithCancel(context.Background())
 	gw, err = gitwatch.New(
 		ctx,
 		[]string{"./test/local/a", "./test/local/b", "https://github.com/Southclaws/gitwatch.git"},
 		time.Second,
 		"./test/",
-		auth,
+		nil,
 		true,
 	)
 	if err != nil {
@@ -82,11 +76,19 @@ func TestMain(m *testing.M) {
 	os.Exit(ret)
 }
 
+func assertEventsEqual(t *testing.T, a, b gitwatch.Event) {
+	assert.Equal(t, a.URL, b.URL)
+	assert.Equal(t, a.Path, b.Path)
+	assert.T(t, a.Timestamp.Equal(b.Timestamp))
+}
+
+func consumeAndAssert(t *testing.T, events chan gitwatch.Event, expected gitwatch.Event) {
+	assertEventsEqual(t, expected, <-events)
+}
+
 func TestMakeChange1(t *testing.T) {
 	ts := mockRepoChange("a", "hello world!")
-
-	event := <-gw.Events
-	assert.Equal(t, event, gitwatch.Event{
+	consumeAndAssert(t, gw.Events, gitwatch.Event{
 		URL:       "./test/local/a",
 		Path:      fullPath("./test/a"),
 		Timestamp: ts.Truncate(time.Second),
@@ -95,22 +97,18 @@ func TestMakeChange1(t *testing.T) {
 
 func TestMakeChange2(t *testing.T) {
 	tsa := mockRepoChange("a", "hello world!!")
-
-	event := <-gw.Events
-	assert.Equal(t, gitwatch.Event{
+	consumeAndAssert(t, gw.Events, gitwatch.Event{
 		URL:       "./test/local/a",
 		Path:      fullPath("./test/a"),
 		Timestamp: tsa.Truncate(time.Second),
-	}, event)
+	})
 
 	tsb := mockRepoChange("b", "hello earth")
-
-	event = <-gw.Events
-	assert.Equal(t, gitwatch.Event{
+	consumeAndAssert(t, gw.Events, gitwatch.Event{
 		URL:       "./test/local/b",
 		Path:      fullPath("./test/b"),
 		Timestamp: tsb.Truncate(time.Second),
-	}, event)
+	})
 }
 
 func mockRepo(name string) {

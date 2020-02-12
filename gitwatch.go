@@ -63,6 +63,7 @@ func New(
 		Repositories: repoList,
 		Interval:     interval,
 		Directory:    dir,
+		Auth:         auth,
 		Events:       make(chan Event, len(repos)),
 		Errors:       make(chan error, 16),
 		InitialEvent: initialEvent,
@@ -255,9 +256,9 @@ func GetRepoPath(cache, repo string) (result string, err error) {
 // MakeRepositoryList Creates a repository list from an array of
 // strings, while also checking is the string contains a special
 // character which can be used to get the branch to use
-func MakeRepositoryList(repos []string) (result []Repository) {
-	var repoList []Repository
-	for _, repo := range repos {
+func MakeRepositoryList(repos []string) []Repository {
+	result := make([]Repository, len(repos))
+	for i, repo := range repos {
 		url := repo
 		branch := "master"
 
@@ -270,11 +271,10 @@ func MakeRepositoryList(repos []string) (result []Repository) {
 			}
 		}
 
-		list := Repository{
+		result[i] = Repository{
 			URL:    url,
 			Branch: branch,
 		}
-		repoList = append(repoList, list)
 	}
-	return repoList
+	return result
 }
