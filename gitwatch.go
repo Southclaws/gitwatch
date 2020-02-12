@@ -93,7 +93,7 @@ func (s *Session) daemon() (err error) {
 	f := func() (err error) {
 		select {
 		case <-s.ctx.Done():
-			err = context.Canceled
+			err = s.ctx.Err()
 		case <-t.C:
 			err = s.checkRepos()
 			if err != nil {
