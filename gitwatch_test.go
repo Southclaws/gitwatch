@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Southclaws/gitwatch/v2"
+	"github.com/Southclaws/gitwatch"
 	"github.com/bmizerany/assert"
 	"gopkg.in/src-d/go-git.v4"
 	"gopkg.in/src-d/go-git.v4/plumbing/object"

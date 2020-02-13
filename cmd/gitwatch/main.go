@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Southclaws/gitwatch/v2"
+	"github.com/Southclaws/gitwatch"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli"
 	"golang.org/x/xerrors"
