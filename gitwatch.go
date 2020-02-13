@@ -21,8 +21,11 @@ import (
 
 // Repository represents a Git repository address and branch name
 type Repository struct {
-	URL    string // local or remote repository URL to watch
-	Branch string // the name of the branch to use `master` being default
+	URL       string // local or remote repository URL to watch
+	Branch    string // the name of the branch to use `master` being default
+	Directory string // the directory name to clone the repository to, relative from the session's directory
+
+	fullPath string // the full path, computed at construction time
 }
 
 // Session represents a git watch session configuration
@@ -50,17 +53,21 @@ type Event struct {
 // New constructs a new git watch session on the given repositories
 func New(
 	ctx context.Context,
-	repos []string,
+	repos []Repository,
 	interval time.Duration,
 	dir string,
 	auth transport.AuthMethod,
 	initialEvent bool,
 ) (session *Session, err error) {
 	ctx2, cf := context.WithCancel(ctx)
-	repoList := MakeRepositoryList(repos)
+
+	r, err := hydrateRepos(dir, repos)
+	if err != nil {
+		return nil, err
+	}
 
 	session = &Session{
-		Repositories: repoList,
+		Repositories: r,
 		Interval:     interval,
 		Directory:    dir,
 		Auth:         auth,
@@ -126,6 +133,29 @@ func (s *Session) daemon() (err error) {
 	}
 }
 
+// hydrateRepos fills in the full dir paths based on the watcher's root. If a
+// repo specifies a custom path, that is used, otherwise it figures out the path
+// from the URL.
+func hydrateRepos(root string, in []Repository) ([]Repository, error) {
+	out := make([]Repository, len(in))
+	for i, r := range in {
+		updated := r
+		var directory string
+		if r.Directory == "" {
+			d, err := GetRepoDirectory(r.URL)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to get path from repo url %s", r.URL)
+			}
+			directory = d
+		} else {
+			directory = r.Directory
+		}
+		updated.fullPath = filepath.Join(root, directory)
+		out[i] = updated
+	}
+	return out, nil
+}
+
 // checkRepos simply iterates all repositories and collects events from them, if
 // there are any, they will be emitted to the Events channel concurrently.
 func (s *Session) checkRepos() (err error) {
@@ -147,20 +177,14 @@ func (s *Session) checkRepos() (err error) {
 // and if there are changes or the repository had to be cloned fresh (and
 // InitialEvents is true) then an event is returned.
 func (s *Session) checkRepo(repository Repository) (event *Event, err error) {
-	localPath, err := GetRepoPath(s.Directory, repository.URL)
-	if err != nil {
-		err = errors.Wrap(err, "failed to get path from repo url")
-		return
-	}
-
-	repo, err := git.PlainOpen(localPath)
+	repo, err := git.PlainOpen(repository.fullPath)
 	if err != nil {
 		if err != git.ErrRepositoryNotExists {
 			err = errors.Wrap(err, "failed to open local repo")
 			return
 		}
 
-		return s.cloneRepo(repository, localPath)
+		return s.cloneRepo(repository)
 	}
 
 	return s.GetEventFromRepoChanges(repo, repository.Branch)
@@ -168,13 +192,16 @@ func (s *Session) checkRepo(repository Repository) (event *Event, err error) {
 
 // cloneRepo clones the specified repository to the session's cache and, if
 // InitialEvent is true, emits an event for the newly cloned repo.
-func (s *Session) cloneRepo(repository Repository, localPath string) (event *Event, err error) {
-	repo, err := git.PlainCloneContext(s.ctx, localPath, false, &git.CloneOptions{
-		Auth: s.Auth,
-		URL:  repository.URL,
-		ReferenceName: plumbing.ReferenceName(
-			fmt.Sprintf("refs/heads/%s", repository.Branch),
-		),
+func (s *Session) cloneRepo(repository Repository) (event *Event, err error) {
+	var ref plumbing.ReferenceName
+	if repository.Branch != "" {
+		ref = plumbing.ReferenceName(fmt.Sprintf("refs/heads/%s", repository.Branch))
+	}
+
+	repo, err := git.PlainCloneContext(s.ctx, repository.fullPath, false, &git.CloneOptions{
+		Auth:          s.Auth,
+		URL:           repository.URL,
+		ReferenceName: ref,
 	})
 	if err != nil {
 		err = errors.Wrap(err, "failed to clone initial copy of repository")
@@ -195,11 +222,14 @@ func (s *Session) GetEventFromRepoChanges(repo *git.Repository, branch string) (
 		return nil, errors.Wrap(err, "failed to get worktree")
 	}
 
+	var ref plumbing.ReferenceName
+	if branch != "" {
+		ref = plumbing.ReferenceName(fmt.Sprintf("refs/heads/%s", branch))
+	}
+
 	err = wt.Pull(&git.PullOptions{
-		Auth: s.Auth,
-		ReferenceName: plumbing.ReferenceName(
-			fmt.Sprintf("refs/heads/%s", branch),
-		),
+		Auth:          s.Auth,
+		ReferenceName: ref,
 	})
 	if err != nil {
 		if err == git.NoErrAlreadyUpToDate {
@@ -237,44 +267,24 @@ func GetEventFromRepo(repo *git.Repository) (event *Event, err error) {
 	}, nil
 }
 
-// GetRepoPath returns the local path of a cached repo from the given cache, the
-// base component of the repo path is used as a directory name for the target
-// repository.
-func GetRepoPath(cache, repo string) (result string, err error) {
-	path := strings.Split(repo, ":")
-	i := 0
-	if len(path) == 2 {
-		i = 1
-	}
-	u, err := url.Parse(path[i])
-	if err != nil {
-		return
-	}
-	return filepath.Join(cache, filepath.Base(u.Path)), nil
-}
-
-// MakeRepositoryList Creates a repository list from an array of
-// strings, while also checking is the string contains a special
-// character which can be used to get the branch to use
-func MakeRepositoryList(repos []string) []Repository {
-	result := make([]Repository, len(repos))
-	for i, repo := range repos {
-		url := repo
-		branch := "master"
-
-		if strings.Contains(repo, "#") {
-			path := strings.Split(repo, "#")
-
-			url = path[0]
-			if len(path[1]) > 0 {
-				branch = path[1]
-			}
+// GetRepoDirectory the directory name for a repository.
+func GetRepoDirectory(repo string) (string, error) {
+	if strings.HasPrefix(repo, "http") {
+		u, err := url.Parse(repo)
+		if err != nil {
+			return "", err
 		}
-
-		result[i] = Repository{
-			URL:    url,
-			Branch: branch,
+		return filepath.Base(u.EscapedPath()), nil
+	} else {
+		path := strings.Split(repo, ":")
+		i := 0
+		if len(path) == 2 {
+			i = 1
 		}
+		u, err := url.Parse(path[i])
+		if err != nil {
+			return "", err
+		}
+		return filepath.Base(u.Path), nil
 	}
-	return result
 }

@@ -8,7 +8,10 @@ emitted on a channel.
 ```go
 session, err := gitwatch.New(
     ctx,
-    []string{"https://github.com/repo/a", "https://github.com/repo/b#branch"},
+    []Repository{
+        {URL: "https://github.com/repo/a"},
+        {URL: "https://github.com/repo/b"},
+    },
     time.Second,
     "./gitwatch-cache/",
     true,
@@ -43,5 +46,5 @@ once, immediately after all initial targets have been cloned. It's a buffered
 channel of size 1 so there's no explicit need to ever read from it but it can be
 useful for sequencing things properly.
 
-You can specify branches by appending the repository path with a `#` character
-followed by the branch name. Thanks to @ADRFranklin for this feature!
+You can set the branch and directory name of target repositories. See the
+docstring for `Repository` for details.

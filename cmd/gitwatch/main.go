@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
-	"github.com/Southclaws/gitwatch"
+	"github.com/Southclaws/gitwatch/v2"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli"
 	"golang.org/x/xerrors"
@@ -61,7 +62,7 @@ func main() {
 
 		watch, err := gitwatch.New(
 			ctx,
-			repos,
+			MakeRepositoryList(repos),
 			interval,
 			dir,
 			auth,
@@ -90,4 +91,30 @@ func main() {
 	if err := app.Run(os.Args); err != nil {
 		fmt.Println(err)
 	}
+}
+
+// MakeRepositoryList Creates a repository list from an array of
+// strings, while also checking is the string contains a special
+// character which can be used to get the branch to use
+func MakeRepositoryList(repos []string) []gitwatch.Repository {
+	result := make([]gitwatch.Repository, len(repos))
+	for i, repo := range repos {
+		url := repo
+		branch := "master"
+
+		if strings.Contains(repo, "#") {
+			path := strings.Split(repo, "#")
+
+			url = path[0]
+			if len(path[1]) > 0 {
+				branch = path[1]
+			}
+		}
+
+		result[i] = gitwatch.Repository{
+			URL:    url,
+			Branch: branch,
+		}
+	}
+	return result
 }

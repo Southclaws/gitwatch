@@ -2,16 +2,14 @@ package gitwatch_test
 
 import (
 	"context"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 	"time"
 
-	"github.com/Southclaws/gitwatch"
+	"github.com/Southclaws/gitwatch/v2"
 	"github.com/bmizerany/assert"
 	"gopkg.in/src-d/go-git.v4"
 	"gopkg.in/src-d/go-git.v4/plumbing/object"
@@ -34,10 +32,15 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
+	log.Println("creating global watcher")
 	ctx, cf = context.WithCancel(context.Background())
 	gw, err = gitwatch.New(
 		ctx,
-		[]string{"./test/local/a", "./test/local/b", "https://github.com/Southclaws/gitwatch.git"},
+		[]gitwatch.Repository{
+			{URL: "./test/local/a"},
+			{URL: "./test/local/b"},
+			{URL: "https://github.com/Southclaws/gitwatch.git"},
+		},
 		time.Second,
 		"./test/",
 		nil,
@@ -48,6 +51,7 @@ func TestMain(m *testing.M) {
 	}
 
 	go func() {
+		log.Println("starting global watcher daemon")
 		err2 := gw.Run()
 		if err2 != nil && err2 != context.Canceled {
 			log.Fatal(err2)
@@ -56,16 +60,19 @@ func TestMain(m *testing.M) {
 	}()
 
 	go func() {
+		log.Println("listening for errors")
 		err2 := <-gw.Errors
 		if err2 != nil {
 			cf()
 		}
 	}()
 
+	log.Println("waiting for events")
+
 	// consume clone events
-	fmt.Println("consumed initial event:", <-gw.Events)
-	fmt.Println("consumed initial event:", <-gw.Events)
-	fmt.Println("consumed initial event:", <-gw.Events)
+	log.Println("consumed initial event:", <-gw.Events)
+	log.Println("consumed initial event:", <-gw.Events)
+	log.Println("consumed initial event:", <-gw.Events)
 
 	<-gw.InitialDone
 
@@ -190,10 +197,9 @@ func fullPath(relative string) (result string) {
 	return
 }
 
-func TestGetRepoPath(t *testing.T) {
+func TestGetRepoDirectory(t *testing.T) {
 	type args struct {
-		cache string
-		repo  string
+		repo string
 	}
 	tests := []struct {
 		name     string
@@ -201,68 +207,21 @@ func TestGetRepoPath(t *testing.T) {
 		wantPath string
 		wantErr  bool
 	}{
-		{"https", args{"cache", "https://a.com/user/repo"}, "cache/repo", false},
-		{"ssh", args{"cache", "git@a.com:user/repo"}, "cache/repo", false},
+		{"https", args{"https://a.com/user/repo"}, "repo", false},
+		{"https_long", args{"https://a.com/user/namespace/repo"}, "repo", false},
+		{"ssh", args{"git@a.com:user/repo"}, "repo", false},
+		{"ssh_short", args{"git@a.com:repo"}, "repo", false},
+		{"ssh_long", args{"git@a.com:user/s/u/b/d/i/r/repo"}, "repo", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotPath, err := gitwatch.GetRepoPath(tt.args.cache, tt.args.repo)
+			gotPath, err := gitwatch.GetRepoDirectory(tt.args.repo)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("GetRepoPath() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("GetRepoDirectory() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if gotPath != tt.wantPath {
-				t.Errorf("GetRepoPath() = %v, want %v", gotPath, tt.wantPath)
-			}
-		})
-	}
-}
-
-func TestMakeRepositoryList(t *testing.T) {
-	type args struct {
-		repos []string
-	}
-	tests := []struct {
-		name       string
-		args       args
-		wantResult []gitwatch.Repository
-	}{
-		{"without_branch", args{
-			[]string{
-				"https://a.com/user/repo",
-				"git@a.com:user/repo",
-			},
-		}, []gitwatch.Repository{
-			{
-				URL:    "https://a.com/user/repo",
-				Branch: "master",
-			},
-			{
-				URL:    "git@a.com:user/repo",
-				Branch: "master",
-			},
-		}},
-
-		{"with_branch", args{
-			[]string{
-				"https://a.com/user/repo#development",
-				"git@a.com:user/repo#testing",
-			},
-		}, []gitwatch.Repository{
-			{
-				URL:    "https://a.com/user/repo",
-				Branch: "development",
-			},
-			{
-				URL:    "git@a.com:user/repo",
-				Branch: "testing",
-			},
-		}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if gotResult := gitwatch.MakeRepositoryList(tt.args.repos); !reflect.DeepEqual(gotResult, tt.wantResult) {
-				t.Errorf("MakeRepositoryList() = %v, want %v", gotResult, tt.wantResult)
+				t.Errorf("GetRepoDirectory() = %v, want %v", gotPath, tt.wantPath)
 			}
 		})
 	}
