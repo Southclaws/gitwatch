@@ -102,7 +102,7 @@ func (s *Session) daemon() (err error) {
 		case <-s.ctx.Done():
 			err = s.ctx.Err()
 		case <-t.C:
-			err = s.checkRepos()
+			err = s.checkRepos(false)
 			if err != nil {
 				if xerrors.Is(err, io.EOF) {
 					return nil
@@ -118,7 +118,7 @@ func (s *Session) daemon() (err error) {
 	// all targets. If the targets do not exist, they will be cloned and events
 	// will be emitted for them.
 	if s.InitialEvent {
-		err = s.checkRepos()
+		err = s.checkRepos(true)
 		if err != nil {
 			return
 		}
@@ -158,10 +158,10 @@ func hydrateRepos(root string, in []Repository) ([]Repository, error) {
 
 // checkRepos simply iterates all repositories and collects events from them, if
 // there are any, they will be emitted to the Events channel concurrently.
-func (s *Session) checkRepos() (err error) {
+func (s *Session) checkRepos(initial bool) (err error) {
 	for _, repository := range s.Repositories {
 		var event *Event
-		event, err = s.checkRepo(repository)
+		event, err = s.checkRepo(repository, initial)
 		if err != nil {
 			return
 		}
@@ -176,7 +176,7 @@ func (s *Session) checkRepos() (err error) {
 // checkRepo checks a specific git repository that may or may not exist locally
 // and if there are changes or the repository had to be cloned fresh (and
 // InitialEvents is true) then an event is returned.
-func (s *Session) checkRepo(repository Repository) (event *Event, err error) {
+func (s *Session) checkRepo(repository Repository, initial bool) (event *Event, err error) {
 	repo, err := git.PlainOpen(repository.fullPath)
 	if err != nil {
 		if err != git.ErrRepositoryNotExists {
@@ -184,21 +184,30 @@ func (s *Session) checkRepo(repository Repository) (event *Event, err error) {
 			return
 		}
 
-		return s.cloneRepo(repository)
+		repo, err = s.cloneRepo(repository)
+		if err != nil {
+			return
+		}
 	}
 
+	// always generate an event for the initial check
+	if initial {
+		return GetEventFromRepo(repo)
+	}
+
+	// otherwise, check for new events - if there are any changes, `event` will
+	// not be nil.
 	return s.GetEventFromRepoChanges(repo, repository.Branch)
 }
 
-// cloneRepo clones the specified repository to the session's cache and, if
-// InitialEvent is true, emits an event for the newly cloned repo.
-func (s *Session) cloneRepo(repository Repository) (event *Event, err error) {
+// cloneRepo clones the specified repository to the session's cache.
+func (s *Session) cloneRepo(repository Repository) (repo *git.Repository, err error) {
 	var ref plumbing.ReferenceName
 	if repository.Branch != "" {
 		ref = plumbing.ReferenceName(fmt.Sprintf("refs/heads/%s", repository.Branch))
 	}
 
-	repo, err := git.PlainCloneContext(s.ctx, repository.fullPath, false, &git.CloneOptions{
+	repo, err = git.PlainCloneContext(s.ctx, repository.fullPath, false, &git.CloneOptions{
 		Auth:          s.Auth,
 		URL:           repository.URL,
 		ReferenceName: ref,
@@ -206,10 +215,6 @@ func (s *Session) cloneRepo(repository Repository) (event *Event, err error) {
 	if err != nil {
 		err = errors.Wrap(err, "failed to clone initial copy of repository")
 		return
-	}
-
-	if s.InitialEvent {
-		event, err = GetEventFromRepo(repo)
 	}
 	return
 }
