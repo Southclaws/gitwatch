@@ -59,12 +59,12 @@ func New(
 	auth transport.AuthMethod,
 	initialEvent bool,
 ) (session *Session, err error) {
-	ctx2, cf := context.WithCancel(ctx)
-
 	r, err := hydrateRepos(dir, repos)
 	if err != nil {
 		return nil, err
 	}
+
+	ctx2, cf := context.WithCancel(ctx)
 
 	session = &Session{
 		Repositories: r,
