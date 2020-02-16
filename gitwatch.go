@@ -117,13 +117,11 @@ func (s *Session) daemon() (err error) {
 	// before starting the daemon process loop, perform an initial check against
 	// all targets. If the targets do not exist, they will be cloned and events
 	// will be emitted for them.
-	if s.InitialEvent {
-		err = s.checkRepos(true)
-		if err != nil {
-			return
-		}
-		s.InitialDone <- struct{}{}
+	err = s.checkRepos(s.InitialEvent)
+	if err != nil {
+		return
 	}
+	s.InitialDone <- struct{}{}
 
 	for {
 		err = f()
