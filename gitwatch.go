@@ -21,9 +21,10 @@ import (
 
 // Repository represents a Git repository address and branch name
 type Repository struct {
-	URL       string // local or remote repository URL to watch
-	Branch    string // the name of the branch to use `master` being default
-	Directory string // the directory name to clone the repository to, relative from the session's directory
+	URL       string               // local or remote repository URL to watch
+	Branch    string               // the name of the branch to use `master` being default
+	Directory string               // the directory name to clone the repository to, relative from the session's directory
+	Auth      transport.AuthMethod // authentication method for git operations
 
 	fullPath string // the full path, computed at construction time
 }
@@ -51,6 +52,9 @@ type Event struct {
 }
 
 // New constructs a new git watch session on the given repositories
+// The `auth` parameter is the default authentication method. Elements of the
+// `repos` list may specify their own authentication methods, which override
+// this value when set.
 func New(
 	ctx context.Context,
 	repos []Repository,
@@ -195,7 +199,7 @@ func (s *Session) checkRepo(repository Repository, initial bool) (event *Event, 
 
 	// otherwise, check for new events - if there are any changes, `event` will
 	// not be nil.
-	return s.GetEventFromRepoChanges(repo, repository.Branch)
+	return s.GetEventFromRepoChanges(repo, repository.Branch, repository.Auth)
 }
 
 // cloneRepo clones the specified repository to the session's cache.
@@ -206,7 +210,7 @@ func (s *Session) cloneRepo(repository Repository) (repo *git.Repository, err er
 	}
 
 	repo, err = git.PlainCloneContext(s.ctx, repository.fullPath, false, &git.CloneOptions{
-		Auth:          s.Auth,
+		Auth:          s.chooseAuth(repository.Auth),
 		URL:           repository.URL,
 		ReferenceName: ref,
 	})
@@ -219,7 +223,7 @@ func (s *Session) cloneRepo(repository Repository) (repo *git.Repository, err er
 
 // GetEventFromRepoChanges reads a locally cloned git repository an returns an
 // event only if an attempted fetch resulted in new changes in the working tree.
-func (s *Session) GetEventFromRepoChanges(repo *git.Repository, branch string) (event *Event, err error) {
+func (s *Session) GetEventFromRepoChanges(repo *git.Repository, branch string, auth transport.AuthMethod) (event *Event, err error) {
 	wt, err := repo.Worktree()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get worktree")
@@ -231,7 +235,7 @@ func (s *Session) GetEventFromRepoChanges(repo *git.Repository, branch string) (
 	}
 
 	err = wt.Pull(&git.PullOptions{
-		Auth:          s.Auth,
+		Auth:          s.chooseAuth(auth),
 		ReferenceName: ref,
 	})
 	if err != nil {
@@ -290,4 +294,11 @@ func GetRepoDirectory(repo string) (string, error) {
 		}
 		return filepath.Base(u.Path), nil
 	}
+}
+
+func (s *Session) chooseAuth(a transport.AuthMethod) transport.AuthMethod {
+	if a != nil {
+		return a
+	}
+	return s.Auth
 }
