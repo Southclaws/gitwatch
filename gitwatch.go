@@ -16,6 +16,7 @@ import (
 	"golang.org/x/xerrors"
 	"gopkg.in/src-d/go-git.v4"
 	"gopkg.in/src-d/go-git.v4/plumbing"
+	"gopkg.in/src-d/go-git.v4/plumbing/object"
 	"gopkg.in/src-d/go-git.v4/plumbing/transport"
 )
 
@@ -49,6 +50,12 @@ type Event struct {
 	URL       string
 	Path      string
 	Timestamp time.Time
+	commit    object.Commit
+}
+
+// Commit returns the (immutable) commit associated with an event
+func (e Event) Commit() object.Commit {
+	return e.commit
 }
 
 // New constructs a new git watch session on the given repositories
@@ -271,6 +278,7 @@ func GetEventFromRepo(repo *git.Repository) (event *Event, err error) {
 		URL:       remote.Config().URLs[0],
 		Path:      wt.Filesystem.Root(),
 		Timestamp: c.Author.When,
+		commit:    *c,
 	}, nil
 }
 
