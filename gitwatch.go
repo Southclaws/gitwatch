@@ -108,12 +108,17 @@ func (s *Session) IsRunning() bool {
 
 // Add will add a new repository to the list. Works even after the watcher
 // daemon has already been started.
-func (s *Session) Add(r Repository) {
+func (s *Session) Add(r Repository) (err error) {
+	r, err = hydrate(s.Directory, r)
+	if err != nil {
+		return
+	}
 	if s.running {
 		s.newRepos <- r
 	} else {
 		s.Repositories = append(s.Repositories, r)
 	}
+	return
 }
 
 // Close gracefully shuts down the git watcher
@@ -167,24 +172,30 @@ func (s *Session) daemon() (err error) {
 // hydrateRepos fills in the full dir paths based on the watcher's root. If a
 // repo specifies a custom path, that is used, otherwise it figures out the path
 // from the URL.
-func hydrateRepos(root string, in []Repository) ([]Repository, error) {
-	out := make([]Repository, len(in))
+func hydrateRepos(root string, in []Repository) (out []Repository, err error) {
+	out = make([]Repository, len(in))
 	for i, r := range in {
-		updated := r
-		var directory string
-		if r.Directory == "" {
-			d, err := GetRepoDirectory(r.URL)
-			if err != nil {
-				return nil, errors.Wrapf(err, "failed to get path from repo url %s", r.URL)
-			}
-			directory = d
-		} else {
-			directory = r.Directory
+		out[i], err = hydrate(root, r)
+		if err != nil {
+			return nil, err
 		}
-		updated.fullPath = filepath.Join(root, directory)
-		out[i] = updated
 	}
 	return out, nil
+}
+
+func hydrate(root string, r Repository) (Repository, error) {
+	var directory string
+	if r.Directory == "" {
+		d, err := GetRepoDirectory(r.URL)
+		if err != nil {
+			return r, errors.Wrapf(err, "failed to get path from repo url %s", r.URL)
+		}
+		directory = d
+	} else {
+		directory = r.Directory
+	}
+	r.fullPath = filepath.Join(root, directory)
+	return r, nil
 }
 
 // checkRepos simply iterates all repositories and collects events from them, if
