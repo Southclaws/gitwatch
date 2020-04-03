@@ -41,7 +41,8 @@ type Session struct {
 	Events       chan Event           // when a change is detected, events are pushed here
 	Errors       chan error           // when an error occurs, errors come here instead of halting the loop
 
-	running bool // has the watcher started?
+	running  bool            // has the watcher started?
+	newRepos chan Repository // new repositories to add at runtime
 
 	ctx context.Context
 	cf  context.CancelFunc
@@ -105,6 +106,16 @@ func (s *Session) IsRunning() bool {
 	return s.running
 }
 
+// Add will add a new repository to the list. Works even after the watcher
+// daemon has already been started.
+func (s *Session) Add(r Repository) {
+	if s.running {
+		s.newRepos <- r
+	} else {
+		s.Repositories = append(s.Repositories, r)
+	}
+}
+
 // Close gracefully shuts down the git watcher
 func (s *Session) Close() {
 	s.cf()
@@ -130,6 +141,8 @@ func (s *Session) daemon() (err error) {
 				s.Errors <- err
 				return nil
 			}
+		case r := <-s.newRepos:
+			s.Repositories = append(s.Repositories, r)
 		}
 		return
 	}
