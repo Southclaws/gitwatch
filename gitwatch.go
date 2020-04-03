@@ -41,6 +41,8 @@ type Session struct {
 	Events       chan Event           // when a change is detected, events are pushed here
 	Errors       chan error           // when an error occurs, errors come here instead of halting the loop
 
+	running bool // has the watcher started?
+
 	ctx context.Context
 	cf  context.CancelFunc
 }
@@ -98,12 +100,19 @@ func (s *Session) Run() (err error) {
 	return s.daemon()
 }
 
+// IsRunning returns true if `Run` has been called
+func (s *Session) IsRunning() bool {
+	return s.running
+}
+
 // Close gracefully shuts down the git watcher
 func (s *Session) Close() {
 	s.cf()
+	s.running = false
 }
 
 func (s *Session) daemon() (err error) {
+	s.running = true
 	t := time.NewTicker(s.Interval)
 
 	// a function to select over the session's context and the ticker to check
