@@ -250,9 +250,10 @@ func (s *Session) cloneRepo(repository Repository) (repo *git.Repository, err er
 	}
 
 	repo, err = git.PlainCloneContext(s.ctx, repository.fullPath, false, &git.CloneOptions{
-		Auth:          s.chooseAuth(repository.Auth),
-		URL:           repository.URL,
-		ReferenceName: ref,
+		Auth:              s.chooseAuth(repository.Auth),
+		URL:               repository.URL,
+		ReferenceName:     ref,
+		RecurseSubmodules: git.DefaultSubmoduleRecursionDepth,
 	})
 	if err != nil {
 		err = errors.Wrap(err, "failed to clone initial copy of repository")
@@ -275,8 +276,9 @@ func (s *Session) GetEventFromRepoChanges(repo *git.Repository, branch string, a
 	}
 
 	err = wt.Pull(&git.PullOptions{
-		Auth:          s.chooseAuth(auth),
-		ReferenceName: ref,
+		Auth:              s.chooseAuth(auth),
+		ReferenceName:     ref,
+		RecurseSubmodules: git.DefaultSubmoduleRecursionDepth,
 	})
 	if err != nil {
 		if err == git.NoErrAlreadyUpToDate {
