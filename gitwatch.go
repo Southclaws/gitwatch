@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -60,6 +61,9 @@ type Event struct {
 func (e Event) Commit() object.Commit {
 	return e.commit
 }
+
+// an internally used error to inform callers to delete and retry cloning
+var errRetryFromScratch = errors.New("")
 
 // New constructs a new git watch session on the given repositories
 // The `auth` parameter is the default authentication method. Elements of the
@@ -222,14 +226,10 @@ func (s *Session) checkRepo(repository Repository, initial bool) (event *Event, 
 	repo, err := git.PlainOpen(repository.fullPath)
 	if err != nil {
 		if err != git.ErrRepositoryNotExists {
-			err = errors.Wrap(err, "failed to open local repo")
-			return
+			return nil, errors.Wrap(err, "failed to open local repo")
 		}
 
-		repo, err = s.cloneRepo(repository)
-		if err != nil {
-			return
-		}
+		return s.cloneRepo(repository)
 	}
 
 	// always generate an event for the initial check
@@ -239,26 +239,34 @@ func (s *Session) checkRepo(repository Repository, initial bool) (event *Event, 
 
 	// otherwise, check for new events - if there are any changes, `event` will
 	// not be nil.
-	return s.GetEventFromRepoChanges(repo, repository.Branch, repository.Auth)
+	event, err = s.GetEventFromRepoChanges(repo, repository.Branch, repository.Auth)
+	if err != nil {
+		if xerrors.Is(err, errRetryFromScratch) {
+			if err = os.RemoveAll(repository.fullPath); err != nil {
+				return nil, err
+			}
+			return s.cloneRepo(repository)
+		}
+	}
+	return
 }
 
 // cloneRepo clones the specified repository to the session's cache.
-func (s *Session) cloneRepo(repository Repository) (repo *git.Repository, err error) {
+func (s *Session) cloneRepo(repository Repository) (event *Event, err error) {
 	var ref plumbing.ReferenceName
 	if repository.Branch != "" {
 		ref = plumbing.ReferenceName(fmt.Sprintf("refs/heads/%s", repository.Branch))
 	}
 
-	repo, err = git.PlainCloneContext(s.ctx, repository.fullPath, false, &git.CloneOptions{
+	repo, err := git.PlainCloneContext(s.ctx, repository.fullPath, false, &git.CloneOptions{
 		Auth:          s.chooseAuth(repository.Auth),
 		URL:           repository.URL,
 		ReferenceName: ref,
 	})
 	if err != nil {
-		err = errors.Wrap(err, "failed to clone initial copy of repository")
-		return
+		return nil, errors.Wrap(err, "failed to clone new copy of repo")
 	}
-	return
+	return GetEventFromRepo(repo)
 }
 
 // GetEventFromRepoChanges reads a locally cloned git repository an returns an
@@ -273,14 +281,20 @@ func (s *Session) GetEventFromRepoChanges(repo *git.Repository, branch string, a
 	if branch != "" {
 		ref = plumbing.ReferenceName(fmt.Sprintf("refs/heads/%s", branch))
 	}
+	if err = wt.Checkout(&git.CheckoutOptions{Branch: ref}); err != nil {
+		return nil, errors.Wrapf(err, "failed to checkout branch %s", branch)
+	}
 
-	err = wt.Pull(&git.PullOptions{
+	if err = wt.Pull(&git.PullOptions{
 		Auth:          s.chooseAuth(auth),
 		ReferenceName: ref,
-	})
-	if err != nil {
+	}); err != nil {
+
 		if err == git.NoErrAlreadyUpToDate {
 			return nil, nil
+		}
+		if err == git.ErrNonFastForwardUpdate {
+			return nil, errRetryFromScratch
 		}
 		return nil, errors.Wrap(err, "failed to pull local repo")
 	}

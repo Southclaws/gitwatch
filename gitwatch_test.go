@@ -5,7 +5,9 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -27,6 +29,7 @@ func TestMain(m *testing.M) {
 
 	mockRepo("a")
 	mockRepo("b")
+	mockRepo("c")
 	err = os.RemoveAll("./test/gitwatch.git")
 	if err != nil {
 		panic(err)
@@ -39,6 +42,7 @@ func TestMain(m *testing.M) {
 		[]gitwatch.Repository{
 			{URL: "./test/local/a"},
 			{URL: "./test/local/b"},
+			{URL: "./test/local/c"},
 			{URL: "https://github.com/Southclaws/gitwatch.git"},
 		},
 		time.Second,
@@ -73,8 +77,20 @@ func TestMain(m *testing.M) {
 	log.Println("consumed initial event:", <-gw.Events)
 	log.Println("consumed initial event:", <-gw.Events)
 	log.Println("consumed initial event:", <-gw.Events)
+	log.Println("consumed initial event:", <-gw.Events)
 
 	<-gw.InitialDone
+
+	go func() {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, os.Interrupt)
+		buf := make([]byte, 1<<20)
+		for {
+			<-sigs
+			stacklen := runtime.Stack(buf, true)
+			log.Printf("\n%s\n", buf[:stacklen])
+		}
+	}()
 
 	ret := m.Run()
 
@@ -115,6 +131,18 @@ func TestMakeChange2(t *testing.T) {
 		URL:       "./test/local/b",
 		Path:      fullPath("./test/b"),
 		Timestamp: tsb.Truncate(time.Second),
+	})
+}
+
+func TestMakeChangeWithReset(t *testing.T) {
+	if _, err := os.Create("./test/c/file2"); err != nil {
+		panic(err)
+	}
+	tsa := mockRepoChange("c", "second file to cause dirty repo!!")
+	consumeAndAssert(t, gw.Events, gitwatch.Event{
+		URL:       "./test/local/c",
+		Path:      fullPath("./test/c"),
+		Timestamp: tsa.Truncate(time.Second),
 	})
 }
 
