@@ -94,7 +94,7 @@ func consumeAndAssert(t *testing.T, events chan gitwatch.Event, expected gitwatc
 }
 
 func TestMakeChange1(t *testing.T) {
-	ts := mockRepoChange("a", "hello world!")
+	ts := mockRepoChange("a", "hello world!", false)
 	consumeAndAssert(t, gw.Events, gitwatch.Event{
 		URL:       "./test/local/a",
 		Path:      fullPath("./test/a"),
@@ -103,18 +103,27 @@ func TestMakeChange1(t *testing.T) {
 }
 
 func TestMakeChange2(t *testing.T) {
-	tsa := mockRepoChange("a", "hello world!!")
+	tsa := mockRepoChange("a", "hello world!!", false)
 	consumeAndAssert(t, gw.Events, gitwatch.Event{
 		URL:       "./test/local/a",
 		Path:      fullPath("./test/a"),
 		Timestamp: tsa.Truncate(time.Second),
 	})
 
-	tsb := mockRepoChange("b", "hello earth")
+	tsb := mockRepoChange("b", "hello earth", false)
 	consumeAndAssert(t, gw.Events, gitwatch.Event{
 		URL:       "./test/local/b",
 		Path:      fullPath("./test/b"),
 		Timestamp: tsb.Truncate(time.Second),
+	})
+}
+
+func TestMakeChangeWithUntracked(t *testing.T) {
+	ts := mockRepoChange("a", "hello world!", true)
+	consumeAndAssert(t, gw.Events, gitwatch.Event{
+		URL:       "./test/local/a",
+		Path:      fullPath("./test/a"),
+		Timestamp: ts.Truncate(time.Second),
 	})
 }
 
@@ -156,7 +165,7 @@ func mockRepo(name string) {
 	}
 }
 
-func mockRepoChange(name, contents string) time.Time {
+func mockRepoChange(name, contents string, untracked bool) time.Time {
 	dirPath := filepath.Join("./test/local/", name)
 	repo, err := git.PlainOpen(dirPath)
 	if err != nil {
@@ -184,6 +193,14 @@ func mockRepoChange(name, contents string) time.Time {
 	})
 	if err != nil {
 		panic(err)
+	}
+	if untracked {
+		dirPath = filepath.Join("./test/", name)
+		log.Println("adding untracked file to", dirPath)
+		err = ioutil.WriteFile(filepath.Join(dirPath, "untracked"), []byte("i should not be here! :3"), 0666)
+		if err != nil {
+			panic(err)
+		}
 	}
 	log.Println("committed mock change", contents, "to", name)
 	return ts

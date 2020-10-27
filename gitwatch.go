@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -239,7 +240,20 @@ func (s *Session) checkRepo(repository Repository, initial bool) (event *Event, 
 
 	// otherwise, check for new events - if there are any changes, `event` will
 	// not be nil.
-	return s.GetEventFromRepoChanges(repo, repository.Branch, repository.Auth)
+	evt, err := s.GetEventFromRepoChanges(repo, repository.Branch, repository.Auth)
+	if err != nil {
+		// fresh start if there was a failure
+		if err := os.RemoveAll(repository.fullPath); err != nil {
+			return nil, errors.Wrap(err, "failed to remove repository for re-clone")
+		}
+
+		repo, err = s.cloneRepo(repository)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to clone repository for re-clone")
+		}
+		return GetEventFromRepo(repo)
+	}
+	return evt, nil
 }
 
 // cloneRepo clones the specified repository to the session's cache.
@@ -279,6 +293,7 @@ func (s *Session) GetEventFromRepoChanges(repo *git.Repository, branch string, a
 		Auth:              s.chooseAuth(auth),
 		ReferenceName:     ref,
 		RecurseSubmodules: git.DefaultSubmoduleRecursionDepth,
+		Force:             true,
 	})
 	if err != nil {
 		if err == git.NoErrAlreadyUpToDate {
