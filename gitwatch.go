@@ -33,14 +33,16 @@ type Repository struct {
 
 // Session represents a git watch session configuration
 type Session struct {
-	Repositories []Repository         // list of local or remote repository URLs to watch
-	Interval     time.Duration        // the interval between remote checks
-	Directory    string               // the directory to store repositories
-	Auth         transport.AuthMethod // authentication method for git operations
-	InitialEvent bool                 // if true, an event for each repo will be emitted upon construction
-	InitialDone  chan struct{}        // if InitialEvent true, this is pushed to after initial setup done
-	Events       chan Event           // when a change is detected, events are pushed here
-	Errors       chan error           // when an error occurs, errors come here instead of halting the loop
+	Repositories  []Repository         // list of local or remote repository URLs to watch
+	Interval      time.Duration        // the interval between remote checks
+	Directory     string               // the directory to store repositories
+	Auth          transport.AuthMethod // authentication method for git operations
+	InitialEvent  bool                 // if true, an event for each repo will be emitted upon construction
+	AllowDeletion bool                 // if true, repository will be deleted upon error and re-cloned
+	UseForce      bool                 // if true, use force-pull when pulling changes, wiping any local changes
+	InitialDone   chan struct{}        // if InitialEvent true, this is pushed to after initial setup done
+	Events        chan Event           // when a change is detected, events are pushed here
+	Errors        chan error           // when an error occurs, errors come here instead of halting the loop
 
 	running  bool            // has the watcher started?
 	newRepos chan Repository // new repositories to add at runtime
@@ -242,16 +244,20 @@ func (s *Session) checkRepo(repository Repository, initial bool) (event *Event, 
 	// not be nil.
 	evt, err := s.GetEventFromRepoChanges(repo, repository.Branch, repository.Auth)
 	if err != nil {
-		// fresh start if there was a failure
-		if err := os.RemoveAll(repository.fullPath); err != nil {
-			return nil, errors.Wrap(err, "failed to remove repository for re-clone")
-		}
+		if s.AllowDeletion {
+			// fresh start if there was a failure
+			if err := os.RemoveAll(repository.fullPath); err != nil {
+				return nil, errors.Wrap(err, "failed to remove repository for re-clone")
+			}
 
-		repo, err = s.cloneRepo(repository)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to clone repository for re-clone")
+			repo, err = s.cloneRepo(repository)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to clone repository for re-clone")
+			}
+			return GetEventFromRepo(repo)
+		} else {
+			return nil, err
 		}
-		return GetEventFromRepo(repo)
 	}
 	return evt, nil
 }
@@ -293,7 +299,7 @@ func (s *Session) GetEventFromRepoChanges(repo *git.Repository, branch string, a
 		Auth:              s.chooseAuth(auth),
 		ReferenceName:     ref,
 		RecurseSubmodules: git.DefaultSubmoduleRecursionDepth,
-		Force:             true,
+		Force:             s.UseForce,
 	})
 	if err != nil {
 		if err == git.NoErrAlreadyUpToDate {
